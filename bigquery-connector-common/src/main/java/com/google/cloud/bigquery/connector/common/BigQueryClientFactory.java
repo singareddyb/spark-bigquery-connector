@@ -41,15 +41,14 @@ import org.threeten.bp.Duration;
 
 /**
  * Since Guice recommends to avoid injecting closeable resources (see
- * https://github.com/google/guice/wiki/Avoid-Injecting-Closable-Resources), this factory creates
+ * https://github.com/google/guice/wiki/Avoid-Injecting-Closable-Resources),
+ * this factory creates
  * and caches clients and also closes them during JVM shutdown.
  */
 public class BigQueryClientFactory implements Serializable {
   private static final Logger log = LoggerFactory.getLogger(BigQueryClientFactory.class);
-  private static final Map<BigQueryClientFactory, BigQueryReadClient> readClientMap =
-      new HashMap<>();
-  private static final Map<BigQueryClientFactory, BigQueryWriteClient> writeClientMap =
-      new HashMap<>();
+  private static final Map<BigQueryClientFactory, BigQueryReadClient> readClientMap = new HashMap<>();
+  private static final Map<BigQueryClientFactory, BigQueryWriteClient> writeClientMap = new HashMap<>();
 
   private final Credentials credentials;
   // using the user agent as HeaderProvider is not serializable
@@ -70,22 +69,32 @@ public class BigQueryClientFactory implements Serializable {
   public BigQueryReadClient getBigQueryReadClient() {
     synchronized (readClientMap) {
       if (!readClientMap.containsKey(this)) {
-        BigQueryReadClient bigQueryReadClient =
-            createBigQueryReadClient(this.bqConfig.getBigQueryStorageGrpcEndpoint());
+        BigQueryReadClient bigQueryReadClient = createBigQueryReadClient(
+            this.bqConfig.getBigQueryStorageGrpcEndpoint());
         Runtime.getRuntime()
             .addShutdownHook(new Thread(() -> shutdownBigQueryReadClient(bigQueryReadClient)));
         readClientMap.put(this, bigQueryReadClient);
       }
     }
 
-    return readClientMap.get(this);
+    if (readClientMap.get(this) != null) {
+      return readClientMap.get(this);
+    } else {
+      BigQueryReadClient bigQueryReadClient = createBigQueryReadClient(this.bqConfig.getBigQueryStorageGrpcEndpoint());
+      Runtime.getRuntime()
+          .addShutdownHook(new Thread(() -> shutdownBigQueryReadClient(bigQueryReadClient)));
+      System.out.println(
+          "Predictions-Tracer: bigquery-connector-common.src.main.java.com.google.cloud.bigquery.connector.common.BigQueryClientFactory getBigQueryReadClient (creating a new client because what is in hash-map is null) BigQueryReadClient="
+              + bigQueryReadClient);
+      return bigQueryReadClient;
+    }
   }
 
   public BigQueryWriteClient getBigQueryWriteClient() {
     synchronized (writeClientMap) {
       if (!writeClientMap.containsKey(this)) {
-        BigQueryWriteClient bigQueryWriteClient =
-            createBigQueryWriteClient(this.bqConfig.getBigQueryStorageGrpcEndpoint());
+        BigQueryWriteClient bigQueryWriteClient = createBigQueryWriteClient(
+            this.bqConfig.getBigQueryStorageGrpcEndpoint());
         Runtime.getRuntime()
             .addShutdownHook(new Thread(() -> shutdownBigQueryWriteClient(bigQueryWriteClient)));
         writeClientMap.put(this, bigQueryWriteClient);
@@ -98,9 +107,12 @@ public class BigQueryClientFactory implements Serializable {
   @Override
   public int hashCode() {
     // Here, credentials is an instance of GoogleCredentials which can be one out of
-    // GoogleCredentials, UserCredentials, ServiceAccountCredentials, ExternalAccountCredentials or
-    // ImpersonatedCredentials (See the class BigQueryCredentialsSupplier which supplies these
-    // Credentials). Subclasses of the abstract class ExternalAccountCredentials do not have the
+    // GoogleCredentials, UserCredentials, ServiceAccountCredentials,
+    // ExternalAccountCredentials or
+    // ImpersonatedCredentials (See the class BigQueryCredentialsSupplier which
+    // supplies these
+    // Credentials). Subclasses of the abstract class ExternalAccountCredentials do
+    // not have the
     // hashCode method defined on them and hence we get the byte array of the
     // ExternalAccountCredentials first and then compare their hashCodes.
     if (credentials instanceof ExternalAccountCredentials) {
@@ -126,12 +138,15 @@ public class BigQueryClientFactory implements Serializable {
         && Objects.equal(
             new BigQueryClientFactoryConfig(bqConfig),
             new BigQueryClientFactoryConfig(that.bqConfig))) {
-      // Here, credentials and that.credentials are instances of GoogleCredentials which can be one
+      // Here, credentials and that.credentials are instances of GoogleCredentials
+      // which can be one
       // of GoogleCredentials, UserCredentials, ServiceAccountCredentials,
       // ExternalAccountCredentials or ImpersonatedCredentials (See the class
       // BigQueryCredentialsSupplier which supplies these Credentials). Subclasses of
-      // ExternalAccountCredentials do not have an equals method defined on them and hence we
-      // serialize and compare byte arrays if either of the credentials are instances of
+      // ExternalAccountCredentials do not have an equals method defined on them and
+      // hence we
+      // serialize and compare byte arrays if either of the credentials are instances
+      // of
       // ExternalAccountCredentials
       return BigQueryUtil.areCredentialsEqual(credentials, that.credentials);
     }
@@ -140,21 +155,23 @@ public class BigQueryClientFactory implements Serializable {
   }
 
   private BigQueryReadClient createBigQueryReadClient(Optional<String> endpoint) {
+    System.out.printf(
+        "Predictions-Tracer: bigquery-connector-common.src.main.java.com.google.cloud.bigquery.connector.common.BigQueryClientFactory createBigQueryReadClient - Credentials=%s\n",
+        this.credentials.toString());
     try {
       InstantiatingGrpcChannelProvider.Builder transportBuilder = createTransportBuilder(endpoint);
-      BigQueryReadSettings.Builder clientSettings =
-          BigQueryReadSettings.newBuilder()
-              .setTransportChannelProvider(transportBuilder.build())
-              .setCredentialsProvider(FixedCredentialsProvider.create(credentials));
+      BigQueryReadSettings.Builder clientSettings = BigQueryReadSettings.newBuilder()
+          .setTransportChannelProvider(transportBuilder.build())
+          .setCredentialsProvider(FixedCredentialsProvider.create(credentials));
       bqConfig
           .getCreateReadSessionTimeoutInSeconds()
           .ifPresent(
               timeoutInSeconds -> {
-                // Setting the read session timeout only if the user provided one using options or
+                // Setting the read session timeout only if the user provided one using options
+                // or
                 // using the default timeout
-                UnaryCallSettings.Builder<CreateReadSessionRequest, ReadSession>
-                    createReadSessionSettings =
-                        clientSettings.getStubSettingsBuilder().createReadSessionSettings();
+                UnaryCallSettings.Builder<CreateReadSessionRequest, ReadSession> createReadSessionSettings = clientSettings
+                    .getStubSettingsBuilder().createReadSessionSettings();
                 Duration timeout = Duration.ofSeconds(timeoutInSeconds);
                 createReadSessionSettings.setRetrySettings(
                     createReadSessionSettings
@@ -165,6 +182,10 @@ public class BigQueryClientFactory implements Serializable {
                         .setTotalTimeout(timeout)
                         .build());
               });
+      BigQueryReadSettings bigQueryReadsettings = clientSettings.build();
+      System.out.printf(
+          "Predictions-Tracer: bigquery-connector-common.src.main.java.com.google.cloud.bigquery.connector.common.BigQueryClientFactory createBigQueryReadClient - bigQueryReadSettings=%s\n",
+          bigQueryReadsettings.toString());
       return BigQueryReadClient.create(clientSettings.build());
     } catch (IOException e) {
       throw new UncheckedIOException("Error creating BigQueryStorageReadClient", e);
@@ -174,10 +195,9 @@ public class BigQueryClientFactory implements Serializable {
   private BigQueryWriteClient createBigQueryWriteClient(Optional<String> endpoint) {
     try {
       InstantiatingGrpcChannelProvider.Builder transportBuilder = createTransportBuilder(endpoint);
-      BigQueryWriteSettings.Builder clientSettings =
-          BigQueryWriteSettings.newBuilder()
-              .setTransportChannelProvider(transportBuilder.build())
-              .setCredentialsProvider(FixedCredentialsProvider.create(credentials));
+      BigQueryWriteSettings.Builder clientSettings = BigQueryWriteSettings.newBuilder()
+          .setTransportChannelProvider(transportBuilder.build())
+          .setCredentialsProvider(FixedCredentialsProvider.create(credentials));
       return BigQueryWriteClient.create(clientSettings.build());
     } catch (IOException e) {
       throw new BigQueryConnectorException("Error creating BigQueryWriteClient", e);
@@ -186,9 +206,9 @@ public class BigQueryClientFactory implements Serializable {
 
   private InstantiatingGrpcChannelProvider.Builder createTransportBuilder(
       Optional<String> endpoint) {
-    InstantiatingGrpcChannelProvider.Builder transportBuilder =
-        BigQueryReadSettings.defaultGrpcTransportProviderBuilder()
-            .setHeaderProvider(headerProvider);
+    InstantiatingGrpcChannelProvider.Builder transportBuilder = BigQueryReadSettings
+        .defaultGrpcTransportProviderBuilder()
+        .setHeaderProvider(headerProvider);
     setProxyConfig(transportBuilder);
     endpoint.ifPresent(
         e -> {
@@ -210,6 +230,9 @@ public class BigQueryClientFactory implements Serializable {
   }
 
   private void shutdownBigQueryReadClient(BigQueryReadClient bigQueryReadClient) {
+    System.out.println(
+        "Predictions-Tracer: bigquery-connector-common.src.main.java.com.google.cloud.bigquery.connector.common.BigQueryClientFactory shutdownBigQueryReadClient - bigQueryReadClient="
+            + bigQueryReadClient);
     if (bigQueryReadClient != null && !bigQueryReadClient.isShutdown()) {
       bigQueryReadClient.shutdown();
     }
@@ -221,3 +244,4 @@ public class BigQueryClientFactory implements Serializable {
     }
   }
 }
+
